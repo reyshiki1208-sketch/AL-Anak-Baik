@@ -49,7 +49,7 @@ jobs:
           fi
 
           echo "Mengunduh isi folder dari Google Drive: $GDRIVE_LINK"
-          gdown --folder "$GDRIVE_LINK" -O raw_videos --remaining-ok
+          gdown --folder "$GDRIVE_LINK" -O raw_videos
 
           echo "Isi folder raw_videos:"
           ls -la raw_videos
