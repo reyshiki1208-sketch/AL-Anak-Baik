@@ -1,0 +1,109 @@
+Name: Compress H265 Batch Folder (Ubuntu)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      gdrive_url:
+        description: 'URL Folder Google Drive'
+        required: false
+        default: 'https://drive.google.com/drive/folders/1AIDzBK9fioeuXik5fiD672spjSa29Kh9'
+      ffmpeg_url:
+        description: 'URL Direct Download ffmpeg binary'
+        required: false
+
+env:
+  DEFAULT_FFMPEG_URL: 'https://github.com/scottluxe256-hub/compressions/releases/download/9.0.2/ffmpeg'
+  DEFAULT_GDRIVE_URL: 'https://drive.google.com/drive/folders/1AIDzBK9fioeuXik5fiD672spjSa29Kh9'
+
+jobs:
+  compress-h265-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Folders & Install Tools
+        run: |
+          mkdir -p raw_videos compressed_videos
+          sudo apt-get update
+          python3 -m pip install --upgrade gdown
+
+      - name: Download Custom Linux ffmpeg
+        run: |
+          URL="${{ github.event.inputs.ffmpeg_url }}"
+          if [ -z "$URL" ]; then
+            URL="${{ env.DEFAULT_FFMPEG_URL }}"
+          fi
+          echo "Downloading FFmpeg from: $URL"
+          curl -L "$URL" -o ffmpeg
+          chmod +x ffmpeg
+
+      - name: Download Folder dari Google Drive
+        run: |
+          GDRIVE_LINK="${{ github.event.inputs.gdrive_url }}"
+          if [ -z "$GDRIVE_LINK" ]; then
+            GDRIVE_LINK="${{ env.DEFAULT_GDRIVE_URL }}"
+          fi
+
+          echo "Mengunduh isi folder dari Google Drive: $GDRIVE_LINK"
+          gdown --folder "$GDRIVE_LINK" -O raw_videos --remaining-ok
+
+          echo "Isi folder raw_videos:"
+          ls -la raw_videos
+
+      - name: Proses Kompresi H.265 Batch (Ubuntu - PC Range & Crisp Detail)
+        run: |
+          # Ambil semua file video dari folder raw_videos (termasuk subfolder jika ada)
+          mapfile -t FILES < <(find raw_videos -type f \( -iname "*.mp4" -o -iname "*.mkv" -o -iname "*.mov" -o -iname "*.avi" -o -iname "*.webm" \))
+
+          TOTAL=${#FILES[@]}
+
+          if [ $TOTAL -eq 0 ]; then
+            echo "❌ Tidak ada video yang ditemukan di raw_videos!"
+            exit 1
+          fi
+
+          echo "🎬 Ditemukan $TOTAL file video. Memulai batch compression..."
+          COUNT=0
+
+          for INPUT in "${FILES[@]}"; do
+            COUNT=$((COUNT + 1))
+            FILENAME=$(basename "$INPUT")
+            NAME="${FILENAME%.*}"
+            OUTPUT="compressed_videos/${NAME}_H265_PCRange.mp4"
+
+            echo "--------------------------------------------------"
+            echo "🚀 [$COUNT/$TOTAL] Memproses: $FILENAME"
+            echo "--------------------------------------------------"
+
+            ./ffmpeg -nostdin \
+            -i "$INPUT" \
+            -r 60 \
+            -c:v libx265 -preset slow -crf 25 -profile:v main -pix_fmt yuv420p \
+            -g 120 -keyint_min 30 \
+            -x265-params "level-idc=4.1:ref=5:bframes=5:aq-mode=3:aq-strength=0.8:qg-size=32:psy-rd=1.0:psy-rdoq=0.5:rdoq-level=2:deblock=0,0:nr-intra=250:nr-inter=250:rc-lookahead=60:me=umh:merange=24:subme=4:wpp=1:frame-threads=0:pools=+:no-sao=1:range=full:colorprim=bt709:transfer=bt709:colormatrix=bt709" \
+            -color_range pc \
+            -sws_flags spline+accurate_rnd \
+            -vf "fps=fps=60:round=near,setpts=N/60/TB,scale='if(gt(iw,ih),-2,720)':'if(gt(iw,ih),720,-2)':flags=spline+accurate_rnd+full_chroma_int+full_chroma_inp:in_range=tv:out_range=pc" \
+            -colorspace bt709 -color_primaries bt709 -color_trc bt709 \
+            -c:a libfdk_aac -profile:a aac_he -b:a 64k \
+            -shortest \
+            -video_track_timescale 60000 -tag:v hvc1 \
+            -metadata title="TikTok 8Bit Safe Color H265 PC Range Crisp" \
+            -movflags +faststart -y "$OUTPUT"
+
+            echo "✅ Selesai [$COUNT/$TOTAL]: $OUTPUT"
+          done
+
+          echo "🎉 Semua video berhasil dikompres!"
+          ls -lh compressed_videos/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hasil-Kompres-H265-Ubuntu-Batch
+          path: compressed_videos/
+          retention-days: 7
